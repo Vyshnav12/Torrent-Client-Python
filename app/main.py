@@ -27,6 +27,16 @@ def decode_bencode(bencoded_value):
                 item, data = decode(data)
                 elements.append(item)
             return elements, data[1:]
+        elif data.startswith(b"d"):
+            data = data[1:]
+            dictionary = {}
+            while not data.startswith(b"e"):
+                key, data = decode(data)
+                if isinstance(key, bytes):
+                    key = key.decode()
+                value, data = decode(data)
+                dictionary[key] = value
+            return dictionary, data[1:]
         else: 
             raise ValueError("Invalid encoded value")
 
@@ -51,6 +61,12 @@ def main():
             raise TypeError(f"Type not serializable: {type(data)}")
 
         print(json.dumps(decode_bencode(bencoded_value), default=bytes_to_str))
+    elif command == "info":
+        torrent_file_path = sys.argv[2]
+        with open(torrent_file_path, "rb") as f:
+            print(f.read())
+
+        
     else:
         raise NotImplementedError(f"Unknown command {command}")
 
