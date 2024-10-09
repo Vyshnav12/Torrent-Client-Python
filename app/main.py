@@ -9,16 +9,29 @@ import sys
 # - decode_bencode(b"5:hello") -> b"hello"
 # - decode_bencode(b"10:hello12345") -> b"hello12345"
 def decode_bencode(bencoded_value):
-    if chr(bencoded_value[0]).isdigit():
-        first_colon_index = bencoded_value.find(b":")
-        if first_colon_index == -1:
+    def parse_string(data):
+        length, string = data.split(b":", 1)
+        length = int(length)
+        return string[:length], string[length:]
+    
+    def decode(data):
+        if chr(data[0]).isdigit():
+            return parse_string(data)
+        elif data.startswith(b"i"):
+            end = data.index(b"e")
+            return int(data[1:end]), data[end+1:]
+        elif data.startswith(b"l"):
+            data = data[1:]
+            elements = []
+            while not data.startswith(b"e"):
+                item, data = decode(data)
+                elements.append(item)
+            return elements, data[1:]
+        else: 
             raise ValueError("Invalid encoded value")
-        return bencoded_value[first_colon_index+1:]
-    elif chr(bencoded_value[0]) == "i":
-        return int(bencoded_value[1:-1])
-    else:
-        raise NotImplementedError("Only strings are supported at the moment")
 
+    decoded_val, _ = decode(bencoded_value)
+    return decoded_val
 
 def main():
     command = sys.argv[1]
