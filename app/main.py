@@ -1,9 +1,13 @@
 import json
 import sys
 
-# import bencodepy - available if you need it!
-# import requests - available if you need it!
-
+import bencodepy
+import hashlib
+from random import choice
+from string import ascii_uppercase
+import requests
+from urllib.parse import urlencode
+import struct
 # Examples:
 #
 # - decode_bencode(b"5:hello") -> b"hello"
@@ -69,9 +73,44 @@ def main():
 
         torrent_dict = decode_bencode(torrent_data)
 
-        print(f"Tracker URL: {torrent_dict['announce'].decode('utf-8')}")
+        print(f"Tracker URL: {torrent_dict['announce'].decode()}")
         print(f"Length: {torrent_dict['info']['length']}")
+        info2 = torrent_dict['info']
+        info2_hex = hashlib.sha1(bencodepy.encode(info2)).hexdigest()
+        print(f"Info Hash: {info2_hex}")
+        print(f"Piece Length: {torrent_dict['info']['piece length']}")
+        print(f"Pieces: {torrent_dict['info']['pieces'].hex()}")
+        
+    elif command == "peers":
+        torrent_file_path = sys.argv[2]
+        with open(torrent_file_path, "rb") as f:
+            torrent_data = f.read()
 
+        torrent_dict = decode_bencode(torrent_data)
+        info2 = torrent_dict['info']
+        info2_hex = hashlib.sha1(bencodepy.encode(info2)).digest()
+        
+        params = {
+            "info_hash": info2_hex,
+            "peer_id": "".join(choice(ascii_uppercase) for _ in range(20)),
+            "port": "6881",
+            "uploaded": "0",
+            "downloaded": "0",
+            "left": torrent_dict['info']['length'],
+            "compact": "1",
+        }
+        
+        response = requests.get(torrent_dict['announce'].decode() + "?" + urlencode(params))
+        response_dict = decode_bencode(response.content)
+        peers = response_dict['peers']
+        
+        for i in range(0, len(response_dict['peers']), 6):
+            ip = peers[i:i+4]
+            port = peers[i+4:i+6]
+            
+            ip = '.'.join(str(ips) for ips in ip)
+            port = struct.unpack('!H', port)[0]
+            print(f"{ip}:{port}")
         
     else:
         raise NotImplementedError(f"Unknown command {command}")
