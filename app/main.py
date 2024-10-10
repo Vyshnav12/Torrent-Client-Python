@@ -61,10 +61,16 @@ def main():
             raise TypeError(f"Type not serializable: {type(data)}")
 
         print(json.dumps(decode_bencode(bencoded_value), default=bytes_to_str))
+        
     elif command == "info":
         torrent_file_path = sys.argv[2]
         with open(torrent_file_path, "rb") as f:
-            print(f.read())
+            torrent_data = f.read()
+
+        torrent_dict = decode_bencode(torrent_data)
+
+        print(f"Tracker URL: {torrent_dict['announce'].decode('utf-8')}")
+        print(f"Length: {torrent_dict['info']['length']}")
 
         
     else:
