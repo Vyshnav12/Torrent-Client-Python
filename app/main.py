@@ -1,13 +1,13 @@
 import json
 import sys
+import os
 
-import bencodepy
+import bencodepy # type: ignore
 import hashlib
-from random import choice
-from string import ascii_uppercase
 import requests
 from urllib.parse import urlencode
 import struct
+import socket
 # Examples:
 #
 # - decode_bencode(b"5:hello") -> b"hello"
@@ -47,6 +47,70 @@ def decode_bencode(bencoded_value):
     decoded_val, _ = decode(bencoded_value)
     return decoded_val
 
+def info_hash(torrent_fp):
+    with open(torrent_fp, "rb") as f:
+            torrent_data = f.read()
+
+    torrent_dict = decode_bencode(torrent_data)
+    
+    print(f"Tracker URL: {torrent_dict['announce'].decode()}")
+    print(f"Length: {torrent_dict['info']['length']}")
+    info2 = torrent_dict['info']
+    info2_hex = hashlib.sha1(bencodepy.encode(info2)).hexdigest()
+    print(f"Info Hash: {info2_hex}")
+    print(f"Piece Length: {torrent_dict['info']['piece length']}")
+    print(f"Pieces: {torrent_dict['info']['pieces'].hex()}")
+
+def peers(torrent_fp):
+    with open(torrent_fp, "rb") as f:
+            torrent_data = f.read()
+
+    torrent_dict = decode_bencode(torrent_data)
+    info2 = torrent_dict['info']
+    info2_hex = hashlib.sha1(bencodepy.encode(info2)).digest()
+    
+    params = {
+        "info_hash": info2_hex,
+        "peer_id": os.urandom(20),
+        "port": "6881",
+        "uploaded": "0",
+        "downloaded": "0",
+        "left": torrent_dict['info']['length'],
+        "compact": "1",
+    }
+    
+    response = requests.get(torrent_dict['announce'].decode() + "?" + urlencode(params))
+    response_dict = decode_bencode(response.content)
+    peers = response_dict['peers']
+    
+    for i in range(0, len(response_dict['peers']), 6):
+        ip = peers[i:i+4]
+        port = peers[i+4:i+6]
+        
+        ip = '.'.join(str(ips) for ips in ip)
+        port = struct.unpack('!H', port)[0]
+        print(f"{ip}:{port}")
+
+def handshake(torrent_fp, ip, port):
+    
+    with open(torrent_fp, "rb") as f:
+            torrent_data = f.read()
+
+    torrent = decode_bencode(torrent_data)
+    peer_id = os.urandom(20)
+    info = torrent['info']
+    info2_hex = hashlib.sha1(bencodepy.encode(info)).digest()
+        
+    handshake_message = struct.pack('!B19s8x20s20s', 19, b"BitTorrent protocol", info2_hex, peer_id)
+        
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.connect((ip, port))
+    server_socket.send(handshake_message)
+        
+    recieved_message = server_socket.recv(1024)
+    recieved_message = struct.unpack('!B19s8x20s20s', recieved_message)
+    print(f"Peer ID: {recieved_message[3].hex()}")
+    
 def main():
     command = sys.argv[1]
 
@@ -68,49 +132,22 @@ def main():
         
     elif command == "info":
         torrent_file_path = sys.argv[2]
-        with open(torrent_file_path, "rb") as f:
-            torrent_data = f.read()
-
-        torrent_dict = decode_bencode(torrent_data)
-
-        print(f"Tracker URL: {torrent_dict['announce'].decode()}")
-        print(f"Length: {torrent_dict['info']['length']}")
-        info2 = torrent_dict['info']
-        info2_hex = hashlib.sha1(bencodepy.encode(info2)).hexdigest()
-        print(f"Info Hash: {info2_hex}")
-        print(f"Piece Length: {torrent_dict['info']['piece length']}")
-        print(f"Pieces: {torrent_dict['info']['pieces'].hex()}")
+        info_hash(torrent_file_path)
         
     elif command == "peers":
         torrent_file_path = sys.argv[2]
-        with open(torrent_file_path, "rb") as f:
-            torrent_data = f.read()
-
-        torrent_dict = decode_bencode(torrent_data)
-        info2 = torrent_dict['info']
-        info2_hex = hashlib.sha1(bencodepy.encode(info2)).digest()
+        peers(torrent_file_path)
         
-        params = {
-            "info_hash": info2_hex,
-            "peer_id": "".join(choice(ascii_uppercase) for _ in range(20)),
-            "port": "6881",
-            "uploaded": "0",
-            "downloaded": "0",
-            "left": torrent_dict['info']['length'],
-            "compact": "1",
-        }
+    elif command == "handshake":
+        torrent_file_path = sys.argv[2]
+        ip = sys.argv[3].split(":")[0]
+        port = int(sys.argv[3].split(":")[1])
         
-        response = requests.get(torrent_dict['announce'].decode() + "?" + urlencode(params))
-        response_dict = decode_bencode(response.content)
-        peers = response_dict['peers']
-        
-        for i in range(0, len(response_dict['peers']), 6):
-            ip = peers[i:i+4]
-            port = peers[i+4:i+6]
+        handshake(torrent_file_path, ip, port)
             
-            ip = '.'.join(str(ips) for ips in ip)
-            port = struct.unpack('!H', port)[0]
-            print(f"{ip}:{port}")
+    # elif command == "download_piece":
+    #     torrent_file_path = sys.argv[2]
+        
         
     else:
         raise NotImplementedError(f"Unknown command {command}")
